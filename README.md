@@ -7,14 +7,18 @@
 
 ## 🚀 Features
 
-- ✅ **Multi-Database Support** - MySQL, PostgreSQL, SQLite
+- ✅ **Multi-Database Support** - MySQL, PostgreSQL, SQL Server, SQLite
 - ✅ **Batch Tracking** - Rollback migrations by batch, not one-by-one
+- ✅ **Transaction Safety** - Each migration runs in a transaction (atomic)
+- ✅ **Migration Locking** - Prevents concurrent migrations
 - ✅ **SQL-Based Migrations** - Simple SQL files, no Go code needed
 - ✅ **Multi-Statement Support** - Execute multiple SQL statements per migration
 - ✅ **Laravel-Style Commands** - Familiar syntax for Laravel developers
 - ✅ **Auto-Naming** - Smart migration name generation
 - ✅ **Built-in Seeders** - Seed your database with test data
 - ✅ **Driver-Specific SQL** - Auto-generate correct SQL for your database
+- ✅ **Migration Status** - See which migrations are pending/ran
+- ✅ **Dry Run Mode** - Preview migrations before running
 
 ## 📦 Installation
 
@@ -135,6 +139,12 @@ artisan migrate:rollback --step=3
 
 # Rollback all migrations
 artisan migrate:fresh
+
+# Show migration status
+artisan migrate:status
+
+# Preview pending migrations (dry run)
+artisan migrate:dry-run
 ```
 
 ### Seeder Commands

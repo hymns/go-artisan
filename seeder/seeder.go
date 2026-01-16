@@ -34,14 +34,26 @@ func (s *Seeder) Run(seedersPath string) error {
 			return fmt.Errorf("failed to parse seeder %s: %w", name, err)
 		}
 
-		// Execute each SQL statement
+		// Start transaction for atomic seeding
+		tx, err := s.DB.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction for seeder %s: %w", name, err)
+		}
+
+		// Execute each SQL statement within transaction
 		for _, stmt := range statements {
 			if stmt == "" {
 				continue
 			}
-			if _, err := s.DB.Exec(stmt); err != nil {
+			if _, err := tx.Exec(stmt); err != nil {
+				tx.Rollback()
 				return fmt.Errorf("failed to run seeder %s: %w", name, err)
 			}
+		}
+
+		// Commit transaction
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit seeder %s: %w", name, err)
 		}
 
 		color.Green("✓ Seeded: %s", name)

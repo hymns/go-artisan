@@ -13,6 +13,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/microsoft/go-mssqldb"
 )
 
 func main() {
@@ -42,6 +43,10 @@ func main() {
 		handleMigrateRollback(db, args)
 	case "migrate:fresh":
 		handleMigrateFresh(db)
+	case "migrate:status":
+		handleMigrateStatus(db)
+	case "migrate:dry-run", "migrate:dryrun":
+		handleMigrateDryRun(db)
 	case "db:seed":
 		handleSeed(db)
 	case "make:migration":
@@ -73,6 +78,8 @@ func connectDB() (*sql.DB, error) {
 		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", dbUser, dbPass, dbHost, dbPort, dbName)
 	case "postgres":
 		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName)
+	case "sqlserver", "mssql":
+		dsn = fmt.Sprintf("sqlserver://%s:%s@%s:%s?database=%s", dbUser, dbPass, dbHost, dbPort, dbName)
 	case "sqlite", "sqlite3":
 		// For SQLite, dbName is the file path
 		dsn = dbName
@@ -169,6 +176,45 @@ func handleMigrateFresh(db *sql.DB) {
 	color.Green("✓ All migrations rolled back")
 }
 
+func handleMigrateStatus(db *sql.DB) {
+	m := migration.New(db)
+	migrationsPath := getEnv("MIGRATIONS_PATH", "./database/migrations")
+
+	statuses, err := m.Status(migrationsPath)
+	if err != nil {
+		color.Red("✗ Failed to get migration status: %v", err)
+		os.Exit(1)
+	}
+
+	if len(statuses) == 0 {
+		color.Cyan("No migrations found.")
+		return
+	}
+
+	color.Cyan("\nMigration Status:\n")
+	color.White("%-50s %-10s %s\n", "Migration", "Status", "Batch")
+	color.White("%s\n", strings.Repeat("-", 70))
+
+	for _, status := range statuses {
+		if status.Migrated {
+			color.Green("%-50s %-10s %d\n", status.Name, "[✓] Ran", status.Batch)
+		} else {
+			color.Yellow("%-50s %-10s %s\n", status.Name, "[ ] Pending", "-")
+		}
+	}
+	fmt.Println()
+}
+
+func handleMigrateDryRun(db *sql.DB) {
+	m := migration.New(db)
+	migrationsPath := getEnv("MIGRATIONS_PATH", "./database/migrations")
+
+	if err := m.DryRun(migrationsPath); err != nil {
+		color.Red("✗ Dry run failed: %v", err)
+		os.Exit(1)
+	}
+}
+
 func handleSeed(db *sql.DB) {
 	s := seeder.New(db)
 	seedersPath := getEnv("SEEDERS_PATH", "./database/seeders")
@@ -255,7 +301,7 @@ func printAbout() {
 	color.Cyan("╚════════════════════════════════════════════════════════════════╝\n\n")
 
 	color.Green("Version: ")
-	color.White("1.0.0\n")
+	color.White("1.2.0\n")
 
 	color.Green("Author:  ")
 	color.White("Muhammad Hamizi Jaminan\n")
@@ -268,7 +314,7 @@ func printAbout() {
 
 	fmt.Println()
 	color.Yellow("A Laravel-inspired database migration tool for Go developers.\n")
-	color.White("Supports MySQL, PostgreSQL, and SQLite with batch tracking,\n")
+	color.White("Supports MySQL, PostgreSQL, SQL Server, and SQLite with batch tracking,\n")
 	color.White("multi-statement migrations, and Laravel-style commands.\n")
 	fmt.Println()
 
@@ -288,6 +334,8 @@ func printUsage() {
 		{"migrate:rollback", "Rollback migrations (default: 1 step)"},
 		{"migrate:rollback --step=N", "Rollback N steps"},
 		{"migrate:fresh", "Rollback all migrations"},
+		{"migrate:status", "Show migration status (pending/migrated)"},
+		{"migrate:dry-run", "Preview pending migrations without running"},
 		{"db:seed", "Run database seeders"},
 		{"", ""},
 		{"make:migration <table>", "Create migration (auto-name: create_<table>_table)"},

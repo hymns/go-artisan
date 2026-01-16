@@ -71,14 +71,107 @@ func (m *Migration) EnsureMigrationsTable() error {
 		)`
 	}
 
-	_, err := m.DB.Exec(query)
-	return err
+	if _, err := m.DB.Exec(query); err != nil {
+		return err
+	}
+
+	// Create migration lock table
+	return m.ensureLockTable()
+}
+
+func (m *Migration) ensureLockTable() error {
+	var query string
+
+	switch m.Driver {
+	case "postgres":
+		query = `CREATE TABLE IF NOT EXISTS migration_lock (
+			id SERIAL PRIMARY KEY,
+			locked BOOLEAN DEFAULT FALSE,
+			locked_at TIMESTAMP,
+			locked_by VARCHAR(255)
+		)`
+	case "sqlite", "sqlite3":
+		query = `CREATE TABLE IF NOT EXISTS migration_lock (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			locked INTEGER DEFAULT 0,
+			locked_at TIMESTAMP,
+			locked_by VARCHAR(255)
+		)`
+	case "sqlserver", "mssql":
+		query = `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='migration_lock' AND xtype='U')
+			CREATE TABLE migration_lock (
+				id INT IDENTITY(1,1) PRIMARY KEY,
+				locked BIT DEFAULT 0,
+				locked_at DATETIME,
+				locked_by VARCHAR(255)
+			)`
+	default: // mysql
+		query = `CREATE TABLE IF NOT EXISTS migration_lock (
+			id INTEGER PRIMARY KEY AUTO_INCREMENT,
+			locked BOOLEAN DEFAULT FALSE,
+			locked_at TIMESTAMP,
+			locked_by VARCHAR(255)
+		)`
+	}
+
+	if _, err := m.DB.Exec(query); err != nil {
+		return err
+	}
+
+	// Initialize lock row if not exists
+	var count int
+	if err := m.DB.QueryRow("SELECT COUNT(*) FROM migration_lock").Scan(&count); err != nil {
+		return err
+	}
+
+	if count == 0 {
+		_, err := m.DB.Exec("INSERT INTO migration_lock (locked) VALUES (0)")
+		return err
+	}
+
+	return nil
+}
+
+func (m *Migration) acquireLock() error {
+	// Try to acquire lock
+	var locked int
+	err := m.DB.QueryRow("SELECT locked FROM migration_lock WHERE id = 1").Scan(&locked)
+	if err != nil {
+		return fmt.Errorf("failed to check lock status: %w", err)
+	}
+
+	if locked == 1 {
+		return fmt.Errorf("migration is already running by another process")
+	}
+
+	// Acquire lock
+	query := fmt.Sprintf("UPDATE migration_lock SET locked = 1, locked_at = CURRENT_TIMESTAMP, locked_by = %s WHERE id = 1", m.placeholder(1))
+	_, err = m.DB.Exec(query, "go-artisan")
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Migration) releaseLock() error {
+	_, err := m.DB.Exec("UPDATE migration_lock SET locked = 0, locked_at = NULL, locked_by = NULL WHERE id = 1")
+	if err != nil {
+		return fmt.Errorf("failed to release lock: %w", err)
+	}
+	return nil
 }
 
 func (m *Migration) Migrate(migrationsPath string) error {
 	if err := m.EnsureMigrationsTable(); err != nil {
 		return fmt.Errorf("failed to ensure migrations table: %w", err)
 	}
+
+	// Acquire lock to prevent concurrent migrations
+	if err := m.acquireLock(); err != nil {
+		return err
+	}
+	defer m.releaseLock()
 
 	migrated, err := m.getMigrated()
 	if err != nil {
@@ -109,18 +202,33 @@ func (m *Migration) Migrate(migrationsPath string) error {
 			return fmt.Errorf("failed to parse migration %s: %w", name, err)
 		}
 
-		// Execute each SQL statement
+		// Start transaction for atomic migration
+		tx, err := m.DB.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction for migration %s: %w", name, err)
+		}
+
+		// Execute each SQL statement within transaction
 		for _, stmt := range statements {
 			if stmt == "" {
 				continue
 			}
-			if _, err := m.DB.Exec(stmt); err != nil {
+			if _, err := tx.Exec(stmt); err != nil {
+				tx.Rollback()
 				return fmt.Errorf("failed to run migration %s: %w", name, err)
 			}
 		}
 
-		if err := m.recordMigration(name, batch); err != nil {
+		// Record migration within same transaction
+		query := fmt.Sprintf("INSERT INTO migrations (migration, batch) VALUES (%s, %s)", m.placeholder(1), m.placeholder(2))
+		if _, err := tx.Exec(query, name, batch); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("failed to record migration %s: %w", name, err)
+		}
+
+		// Commit transaction
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit migration %s: %w", name, err)
 		}
 
 		color.Green("✓ Migrated: %s", name)
@@ -210,7 +318,8 @@ func (m *Migration) getMigrated() ([]string, error) {
 }
 
 func (m *Migration) recordMigration(name string, batch int) error {
-	_, err := m.DB.Exec("INSERT INTO migrations (migration, batch) VALUES (?, ?)", name, batch)
+	query := fmt.Sprintf("INSERT INTO migrations (migration, batch) VALUES (%s, %s)", m.placeholder(1), m.placeholder(2))
+	_, err := m.DB.Exec(query, name, batch)
 	return err
 }
 
@@ -247,7 +356,8 @@ func (m *Migration) GetLastBatch() (int, error) {
 }
 
 func (m *Migration) getBatchMigrations(batch int) ([]string, error) {
-	rows, err := m.DB.Query("SELECT migration FROM migrations WHERE batch = ? ORDER BY id DESC", batch)
+	query := fmt.Sprintf("SELECT migration FROM migrations WHERE batch = %s ORDER BY id DESC", m.placeholder(1))
+	rows, err := m.DB.Query(query, batch)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +376,8 @@ func (m *Migration) getBatchMigrations(batch int) ([]string, error) {
 }
 
 func (m *Migration) deleteMigration(name string) error {
-	_, err := m.DB.Exec("DELETE FROM migrations WHERE migration = ?", name)
+	query := fmt.Sprintf("DELETE FROM migrations WHERE migration = %s", m.placeholder(1))
+	_, err := m.DB.Exec(query, name)
 	return err
 }
 
@@ -373,10 +484,27 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
+func (m *Migration) placeholder(position int) string {
+	switch m.Driver {
+	case "postgres":
+		return fmt.Sprintf("$%d", position)
+	case "sqlserver", "mssql":
+		return fmt.Sprintf("@p%d", position)
+	default:
+		return "?"
+	}
+}
+
 func (m *Migration) AutoMigrate(migrationsPath string) error {
 	if err := m.EnsureMigrationsTable(); err != nil {
 		return fmt.Errorf("failed to ensure migrations table: %w", err)
 	}
+
+	// Acquire lock to prevent concurrent migrations
+	if err := m.acquireLock(); err != nil {
+		return err
+	}
+	defer m.releaseLock()
 
 	migrated, err := m.getMigrated()
 	if err != nil {
@@ -406,23 +534,162 @@ func (m *Migration) AutoMigrate(migrationsPath string) error {
 			return fmt.Errorf("failed to parse migration %s: %w", name, err)
 		}
 
+		// Start transaction for atomic migration
+		tx, err := m.DB.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction for migration %s: %w", name, err)
+		}
+
+		// Execute each SQL statement within transaction
 		for _, stmt := range statements {
 			if stmt == "" {
 				continue
 			}
-			if _, err := m.DB.Exec(stmt); err != nil {
+			if _, err := tx.Exec(stmt); err != nil {
+				tx.Rollback()
 				return fmt.Errorf("failed to run migration %s: %w", name, err)
 			}
 		}
 
-		if err := m.recordMigration(name, batch); err != nil {
+		// Record migration within same transaction
+		query := fmt.Sprintf("INSERT INTO migrations (migration, batch) VALUES (%s, %s)", m.placeholder(1), m.placeholder(2))
+		if _, err := tx.Exec(query, name, batch); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("failed to record migration %s: %w", name, err)
+		}
+
+		// Commit transaction
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit migration %s: %w", name, err)
 		}
 
 		executed++
 	}
 
 	return nil
+}
+
+type MigrationStatus struct {
+	Name     string
+	Migrated bool
+	Batch    int
+}
+
+func (m *Migration) DryRun(migrationsPath string) error {
+	if err := m.EnsureMigrationsTable(); err != nil {
+		return fmt.Errorf("failed to ensure migrations table: %w", err)
+	}
+
+	migrated, err := m.getMigrated()
+	if err != nil {
+		return fmt.Errorf("failed to get migrated list: %w", err)
+	}
+
+	batch, err := m.getNextBatch()
+	if err != nil {
+		return fmt.Errorf("failed to get next batch: %w", err)
+	}
+
+	files, err := m.getMigrationFiles(migrationsPath)
+	if err != nil {
+		return fmt.Errorf("failed to get migration files: %w", err)
+	}
+
+	pending := 0
+	color.Cyan("=== Dry Run - No changes will be made ===\n")
+
+	for _, file := range files {
+		name := filepath.Base(file)
+
+		if contains(migrated, name) {
+			continue
+		}
+
+		statements, err := m.parseMigrationSQL(file, true)
+		if err != nil {
+			return fmt.Errorf("failed to parse migration %s: %w", name, err)
+		}
+
+		color.Yellow("Would migrate: %s (Batch %d)", name, batch)
+		for i, stmt := range statements {
+			if stmt == "" {
+				continue
+			}
+			color.White("  Statement %d: %s", i+1, truncateSQL(stmt, 80))
+		}
+		pending++
+	}
+
+	if pending == 0 {
+		color.Cyan("\nNo pending migrations.")
+	} else {
+		color.Cyan("\nTotal pending migrations: %d", pending)
+	}
+
+	return nil
+}
+
+func truncateSQL(sql string, maxLen int) string {
+	sql = strings.TrimSpace(sql)
+	sql = strings.ReplaceAll(sql, "\n", " ")
+	sql = strings.ReplaceAll(sql, "\t", " ")
+
+	// Remove multiple spaces
+	for strings.Contains(sql, "  ") {
+		sql = strings.ReplaceAll(sql, "  ", " ")
+	}
+
+	if len(sql) > maxLen {
+		return sql[:maxLen] + "..."
+	}
+	return sql
+}
+
+func (m *Migration) Status(migrationsPath string) ([]MigrationStatus, error) {
+	if err := m.EnsureMigrationsTable(); err != nil {
+		return nil, fmt.Errorf("failed to ensure migrations table: %w", err)
+	}
+
+	files, err := m.getMigrationFiles(migrationsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get migration files: %w", err)
+	}
+
+	// Get all migrated migrations with their batch numbers
+	query := "SELECT migration, batch FROM migrations ORDER BY id"
+	rows, err := m.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	migratedMap := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var batch int
+		if err := rows.Scan(&name, &batch); err != nil {
+			return nil, err
+		}
+		migratedMap[name] = batch
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Build status list
+	var statuses []MigrationStatus
+	for _, file := range files {
+		name := filepath.Base(file)
+		batch, migrated := migratedMap[name]
+		statuses = append(statuses, MigrationStatus{
+			Name:     name,
+			Migrated: migrated,
+			Batch:    batch,
+		})
+	}
+
+	return statuses, nil
 }
 
 func (m *Migration) parseMigrationSQL(filePath string, isUp bool) ([]string, error) {
