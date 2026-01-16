@@ -42,13 +42,13 @@ func main() {
 	case "migrate:rollback", "db:rollback":
 		handleMigrateRollback(db, args)
 	case "migrate:fresh":
-		handleMigrateFresh(db)
+		handleMigrateFresh(db, args)
 	case "migrate:status":
 		handleMigrateStatus(db)
 	case "migrate:dry-run", "migrate:dryrun":
 		handleMigrateDryRun(db)
 	case "db:seed":
-		handleSeed(db)
+		handleSeed(db, args)
 	case "make:migration":
 		handleMakeMigration(args)
 	case "make:seeder":
@@ -103,24 +103,35 @@ func handleMigrate(db *sql.DB, args []string) {
 	m := migration.New(db)
 	migrationsPath := getEnv("MIGRATIONS_PATH", "./database/migrations")
 
-	if err := m.Migrate(migrationsPath); err != nil {
-		color.Red("✗ Migration failed: %v", err)
-		os.Exit(1)
-	}
-
-	// Check if --seed flag is present
+	// Parse flags
+	var specificPath string
 	runSeed := false
 	for _, arg := range args {
-		if arg == "--seed" {
+		if strings.HasPrefix(arg, "--path=") {
+			specificPath = strings.TrimPrefix(arg, "--path=")
+		} else if arg == "--seed" {
 			runSeed = true
-			break
+		}
+	}
+
+	// Run specific migration file if --path provided
+	if specificPath != "" {
+		if err := m.MigrateFile(specificPath); err != nil {
+			color.Red("✗ Migration failed: %v", err)
+			os.Exit(1)
+		}
+	} else {
+		// Run all pending migrations
+		if err := m.Migrate(migrationsPath); err != nil {
+			color.Red("✗ Migration failed: %v", err)
+			os.Exit(1)
 		}
 	}
 
 	if runSeed {
 		fmt.Println()
 		color.Cyan("Running seeders...")
-		handleSeed(db)
+		handleSeed(db, []string{})
 	}
 }
 
@@ -149,9 +160,18 @@ func handleMigrateRollback(db *sql.DB, args []string) {
 	}
 }
 
-func handleMigrateFresh(db *sql.DB) {
+func handleMigrateFresh(db *sql.DB, args []string) {
 	m := migration.New(db)
 	migrationsPath := getEnv("MIGRATIONS_PATH", "./database/migrations")
+
+	// Parse --seed flag
+	runSeed := false
+	for _, arg := range args {
+		if arg == "--seed" {
+			runSeed = true
+			break
+		}
+	}
 
 	color.Cyan("Rolling back all migrations...")
 
@@ -174,6 +194,21 @@ func handleMigrateFresh(db *sql.DB) {
 	}
 
 	color.Green("✓ All migrations rolled back")
+
+	// Re-run all migrations
+	fmt.Println()
+	color.Cyan("Running migrations...")
+	if err := m.Migrate(migrationsPath); err != nil {
+		color.Red("✗ Migration failed: %v", err)
+		os.Exit(1)
+	}
+
+	// Run seeders if --seed flag provided
+	if runSeed {
+		fmt.Println()
+		color.Cyan("Running seeders...")
+		handleSeed(db, []string{})
+	}
 }
 
 func handleMigrateStatus(db *sql.DB) {
@@ -192,17 +227,18 @@ func handleMigrateStatus(db *sql.DB) {
 	}
 
 	color.Cyan("\nMigration Status:\n")
-	color.White("%-50s %-10s %s\n", "Migration", "Status", "Batch")
+	color.White("%-50s %-10s %s\n", "Migration", "Batch", "Ran")
 	color.White("%s\n", strings.Repeat("-", 70))
 
 	for _, status := range statuses {
 		if status.Migrated {
-			color.Green("%-50s %-10s %d\n", status.Name, "[✓] Ran", status.Batch)
+			fmt.Printf("%-50s %-10d ", status.Name, status.Batch)
+			color.Green("YES\n")
 		} else {
-			color.Yellow("%-50s %-10s %s\n", status.Name, "[ ] Pending", "-")
+			fmt.Printf("%-50s %-10s ", status.Name, "-")
+			color.Yellow("NO\n")
 		}
 	}
-	fmt.Println()
 }
 
 func handleMigrateDryRun(db *sql.DB) {
@@ -215,13 +251,31 @@ func handleMigrateDryRun(db *sql.DB) {
 	}
 }
 
-func handleSeed(db *sql.DB) {
+func handleSeed(db *sql.DB, args []string) {
 	s := seeder.New(db)
 	seedersPath := getEnv("SEEDERS_PATH", "./database/seeders")
 
-	if err := s.Run(seedersPath); err != nil {
-		color.Red("✗ Seeding failed: %v", err)
-		os.Exit(1)
+	// Parse --path flag
+	var specificPath string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--path=") {
+			specificPath = strings.TrimPrefix(arg, "--path=")
+			break
+		}
+	}
+
+	// Run specific seeder file if --path provided
+	if specificPath != "" {
+		if err := s.RunFile(specificPath); err != nil {
+			color.Red("✗ Seeding failed: %v", err)
+			os.Exit(1)
+		}
+	} else {
+		// Run all seeders
+		if err := s.Run(seedersPath); err != nil {
+			color.Red("✗ Seeding failed: %v", err)
+			os.Exit(1)
+		}
 	}
 }
 
@@ -330,13 +384,16 @@ func printUsage() {
 		description string
 	}{
 		{"migrate", "Run database migrations"},
+		{"migrate --path=<file>", "Run specific migration file"},
 		{"migrate --seed", "Run migrations and seeders"},
 		{"migrate:rollback", "Rollback migrations (default: 1 step)"},
 		{"migrate:rollback --step=N", "Rollback N steps"},
-		{"migrate:fresh", "Rollback all migrations"},
+		{"migrate:fresh", "Rollback all, then re-run migrations"},
+		{"migrate:fresh --seed", "Rollback all, migrate, then seed"},
 		{"migrate:status", "Show migration status (pending/migrated)"},
 		{"migrate:dry-run", "Preview pending migrations without running"},
 		{"db:seed", "Run database seeders"},
+		{"db:seed --path=<file>", "Run specific seeder file"},
 		{"", ""},
 		{"make:migration <table>", "Create migration (auto-name: create_<table>_table)"},
 		{"make:migration <table> <name>", "Create migration with custom name"},

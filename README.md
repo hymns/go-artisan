@@ -5,7 +5,23 @@
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## 🚀 Features
+## Table of Contents
+
+- [Features](#-features)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Commands](#-commands)
+- [New in v1.2.0](#-new-in-v120)
+- [Multi-Database Support](#️-multi-database-support)
+- [Programmatic Usage](#-programmatic-usage)
+- [Comparison with golang-migrate](#-artisan-vs-golang-migrate)
+- [Advanced Usage](#-advanced-usage)
+- [Project Structure](#️-project-structure)
+- [Development](#️-development)
+- [Author](#-author)
+- [License](#-license)
+
+## Features
 
 - ✅ **Multi-Database Support** - MySQL, PostgreSQL, SQL Server, SQLite
 - ✅ **Batch Tracking** - Rollback migrations by batch, not one-by-one
@@ -46,7 +62,16 @@ sudo cp bin/artisan /usr/local/bin/
 
 ### 1. Setup Configuration
 
-Create a `.env` file:
+Copy the example configuration file and customize it:
+
+```bash
+# Copy example configuration
+cp .env.example .env
+
+# Edit .env with your database credentials
+```
+
+Example `.env` configuration:
 
 ```env
 DB_DRIVER=mysql
@@ -60,13 +85,15 @@ MIGRATIONS_PATH=./database/migrations
 SEEDERS_PATH=./database/seeders
 ```
 
+> **Note:** See [Multi-Database Support](#️-multi-database-support) section for PostgreSQL, SQL Server, and SQLite configuration.
+
 ### 2. Create Your First Migration
 
 ```bash
 # Auto-generate migration name
 artisan make:migration users
 
-# Output: 1768501234_create_users_table
+# Output: 2026_01_16_170530_create_users_table
 ```
 
 ### 3. Edit the Migration
@@ -95,7 +122,7 @@ DROP TABLE IF EXISTS users;
 
 ```bash
 artisan migrate
-# ✓ Migrated: 1768501234_create_users_table
+# ✓ Migrated: 2026_01_16_170530_create_users_table
 ```
 
 ### 5. Create and Run Seeders
@@ -128,6 +155,9 @@ artisan make:migration --table=users custom_name
 # Run all pending migrations
 artisan migrate
 
+# Run specific migration file
+artisan migrate --path=./database/migrations/2026_01_16_170530_create_users_table
+
 # Run migrations and seeders
 artisan migrate --seed
 
@@ -137,8 +167,11 @@ artisan migrate:rollback
 # Rollback N batches
 artisan migrate:rollback --step=3
 
-# Rollback all migrations
+# Rollback all, then re-run migrations (fresh start)
 artisan migrate:fresh
+
+# Rollback all, migrate, then seed (fresh system)
+artisan migrate:fresh --seed
 
 # Show migration status
 artisan migrate:status
@@ -159,6 +192,9 @@ artisan make:seeder --seeder=products
 
 # Run all seeders
 artisan db:seed
+
+# Run specific seeder file
+artisan db:seed --path=./database/seeders/users_seeder
 ```
 
 ### Makefile Shortcuts
@@ -252,16 +288,117 @@ CREATE TABLE users (
 );
 ```
 
+## 🎉 New in v1.2.0
+
+### Transaction Safety
+
+All migrations and seeders now run in transactions for atomic operations:
+
+```go
+// Each migration runs in a transaction
+// If any statement fails, entire migration rolls back
+artisan migrate
+```
+
+**Benefits:**
+- ✅ All-or-nothing execution
+- ✅ Automatic rollback on error
+- ✅ Data integrity guaranteed
+
+### Migration Locking
+
+Prevents concurrent migrations from running simultaneously:
+
+```bash
+# Terminal 1
+artisan migrate
+# Running...
+
+# Terminal 2
+artisan migrate
+# ✗ migration is already running by another process
+```
+
+### Migration Status Command
+
+See which migrations have been run and which are pending:
+
+```bash
+artisan migrate:status
+```
+
+**Output:**
+```
+Migration Status:
+
+Migration                                          Batch      Ran
+----------------------------------------------------------------------
+2026_01_16_170530_create_users_table              1          YES
+2026_01_16_170545_create_posts_table              1          YES
+2026_01_16_180230_add_user_roles                  -          NO
+```
+
+- **Green YES** = Migration has been run
+- **Yellow NO** = Migration is pending
+- **Batch** = Which batch the migration was run in (for rollback)
+
+### Dry Run Mode
+
+Preview what migrations will run without executing them:
+
+```bash
+artisan migrate:dry-run
+```
+
+**Output:**
+```
+=== Dry Run - No changes will be made ===
+
+Would migrate: 2026_01_16_180230_add_user_roles (Batch 2)
+  Statement 1: ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'user'...
+  Statement 2: CREATE INDEX idx_users_role ON users(role)...
+
+Total pending migrations: 1
+```
+
+### Database Placeholder Compatibility
+
+Fixed SQL placeholder compatibility for all databases:
+- MySQL/SQLite: `?`
+- PostgreSQL: `$1, $2, $3`
+- SQL Server: `@p1, @p2, @p3`
+
+### Human-Readable Migration Names
+
+Migration filenames now use date-based format:
+
+**Old:** `1768501234_create_users_table`  
+**New:** `2026_01_16_170530_create_users_table`
+
+Format: `YYYY_MM_DD_HHMMSS_migration_name`
+
+**Benefits:**
+- ✅ Easy to identify when migration was created
+- ✅ Human-readable at a glance
+- ✅ Still sortable chronologically
+
+---
+
 ## 🆚 Artisan vs golang-migrate
 
-| Feature | Artisan | golang-migrate |
-|---------|---------|----------------|
+| Feature | Artisan v1.2.0 | golang-migrate |
+|---------|----------------|----------------|
 | **Batch Tracking** | ✅ Yes | ❌ No |
 | **Rollback by Batch** | ✅ Yes | ❌ No (one-by-one only) |
+| **Transaction Safety** | ✅ Yes | ✅ Yes |
+| **Migration Locking** | ✅ Yes | ✅ Yes |
+| **Migration Status** | ✅ Yes | ❌ No |
+| **Dry Run Mode** | ✅ Yes | ❌ No |
 | **Multi-Statement Support** | ✅ Yes | ⚠️ Limited |
 | **Auto-Naming** | ✅ Yes | ❌ No |
 | **Built-in Seeders** | ✅ Yes | ❌ No |
 | **Laravel-Style Commands** | ✅ Yes | ❌ No |
+| **Human-Readable Filenames** | ✅ Yes (date-based) | ❌ No (Unix timestamp) |
 | **Driver-Specific Templates** | ✅ Yes | ❌ No |
 | **Multi-Database Support** | ✅ MySQL, Postgres, SQLite | ✅ Many drivers |
 | **SQL-Based** | ✅ Pure SQL | ✅ Pure SQL |
@@ -331,10 +468,10 @@ migrate -path migrations -database "mysql://..." down 1
 **Artisan:**
 ```bash
 artisan make:migration products
-# Creates: 1768501234_create_products_table
+# Creates: 2026_01_16_170530_create_products_table
 
 artisan make:migration products add_price_column
-# Creates: 1768501235_add_price_column
+# Creates: 2026_01_16_170545_add_price_column
 ```
 
 #### 5. **Built-in Seeder System**
@@ -374,9 +511,15 @@ func main() {
     }
     defer db.Close()
     
-    // Auto-run migrations on startup
+    // Auto-run migrations on startup (safe - idempotent)
     m := migration.New(db)
     if err := m.AutoMigrate("./database/migrations"); err != nil {
+        log.Fatal(err)
+    }
+    
+    // Auto-run seeders on startup (safe - with tracking)
+    s := seeder.New(db)
+    if err := s.AutoSeed("./database/seeders"); err != nil {
         log.Fatal(err)
     }
     
@@ -387,8 +530,11 @@ func main() {
 **Key Features:**
 - ✅ **Silent Execution** - No console output, only returns errors
 - ✅ **Production Ready** - Safe to run on every app startup
-- ✅ **Idempotent** - Only runs pending migrations
-- ✅ **Fast** - Skips already migrated files
+- ✅ **Idempotent** - Only runs pending migrations and seeders
+- ✅ **Fast** - Skips already migrated/seeded files
+- ✅ **Seeder Tracking** - Tracks seeded files to prevent duplicates
+
+> ✅ **Safe:** Both `AutoMigrate` and `AutoSeed` use tracking tables to prevent duplicates. Safe to run on every app startup!
 
 ### Migration Methods
 
@@ -404,8 +550,77 @@ if err := m.AutoMigrate("./database/migrations"); err != nil {
 if err := m.Migrate("./database/migrations"); err != nil {
     log.Fatal(err)
 }
-// Output: ✓ Migrated: 1768501234_create_users_table
+// Output: ✓ Migrated: 2026_01_16_170530_create_users_table
 ```
+
+**`MigrateFile(filePath string)`** - Run specific migration file
+```go
+// Run a specific migration file
+if err := m.MigrateFile("./database/migrations/2026_01_16_170530_create_users_table"); err != nil {
+    log.Fatal(err)
+}
+// Output: ✓ Migrated: 2026_01_16_170530_create_users_table
+```
+
+**Use Cases for `MigrateFile`:**
+- Testing specific migrations in development
+- Running hotfix migrations in production
+- Conditional migration execution based on app logic
+- Debugging migration issues
+
+### Seeder Methods
+
+**`AutoSeed(path string)`** - Silent seeding with tracking (NEW!)
+```go
+// Safe to run on every app startup - tracks seeded files
+s := seeder.New(db)
+if err := s.AutoSeed("./database/seeders"); err != nil {
+    log.Fatal(err)
+}
+```
+
+**Features:**
+- ✅ **Idempotent** - Skips already-seeded files
+- ✅ **Tracking Table** - Uses `seeders` table to track execution
+- ✅ **Silent** - No console output
+- ✅ **Production Safe** - Won't duplicate data on restart
+
+**`RunWithTracking(path string)`** - Run with tracking and colored output
+```go
+// Shows which seeders are skipped vs newly seeded
+s := seeder.New(db)
+if err := s.RunWithTracking("./database/seeders"); err != nil {
+    log.Fatal(err)
+}
+// Output: ⚠ Already seeded: users_seeder
+// Output: ✓ Seeded: products_seeder
+```
+
+**`Run(path string)`** - Run all seeders WITHOUT tracking
+```go
+// ⚠️ WARNING: Will duplicate data if run multiple times
+s := seeder.New(db)
+if err := s.Run("./database/seeders"); err != nil {
+    log.Fatal(err)
+}
+// Output: ✓ Seeded: users_seeder
+```
+
+**`RunFile(filePath string)`** - Run specific seeder file WITHOUT tracking
+```go
+// ⚠️ WARNING: Will duplicate data if run multiple times
+s := seeder.New(db)
+if err := s.RunFile("./database/seeders/users_seeder"); err != nil {
+    log.Fatal(err)
+}
+// Output: ✓ Seeded: users_seeder
+```
+
+**Use Cases:**
+- **`AutoSeed`** - Production apps, auto-run on startup
+- **`RunWithTracking`** - Development, see what's already seeded
+- **`Run`** - One-time seeding, test data that can be wiped
+- **`RunFile`** - Specific seeder for testing/debugging
 
 ## 📖 Advanced Usage
 

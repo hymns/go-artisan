@@ -162,6 +162,74 @@ func (m *Migration) releaseLock() error {
 	return nil
 }
 
+func (m *Migration) MigrateFile(filePath string) error {
+	if err := m.EnsureMigrationsTable(); err != nil {
+		return fmt.Errorf("failed to ensure migrations table: %w", err)
+	}
+
+	// Acquire lock to prevent concurrent migrations
+	if err := m.acquireLock(); err != nil {
+		return err
+	}
+	defer m.releaseLock()
+
+	migrated, err := m.getMigrated()
+	if err != nil {
+		return fmt.Errorf("failed to get migrated list: %w", err)
+	}
+
+	batch, err := m.getNextBatch()
+	if err != nil {
+		return fmt.Errorf("failed to get next batch: %w", err)
+	}
+
+	name := filepath.Base(filePath)
+
+	// Check if already migrated
+	if contains(migrated, name) {
+		color.Yellow("⚠ Migration already run: %s", name)
+		return nil
+	}
+
+	// Read and parse SQL file
+	statements, err := m.parseMigrationSQL(filePath, true) // true = UP
+	if err != nil {
+		return fmt.Errorf("failed to parse migration %s: %w", name, err)
+	}
+
+	// Start transaction for atomic migration
+	tx, err := m.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for migration %s: %w", name, err)
+	}
+
+	// Execute each SQL statement within transaction
+	for _, stmt := range statements {
+		if stmt == "" {
+			continue
+		}
+		if _, err := tx.Exec(stmt); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to run migration %s: %w", name, err)
+		}
+	}
+
+	// Record migration within same transaction
+	query := fmt.Sprintf("INSERT INTO migrations (migration, batch) VALUES (%s, %s)", m.placeholder(1), m.placeholder(2))
+	if _, err := tx.Exec(query, name, batch); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to record migration %s: %w", name, err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit migration %s: %w", name, err)
+	}
+
+	color.Green("✓ Migrated: %s", name)
+	return nil
+}
+
 func (m *Migration) Migrate(migrationsPath string) error {
 	if err := m.EnsureMigrationsTable(); err != nil {
 		return fmt.Errorf("failed to ensure migrations table: %w", err)
@@ -407,8 +475,8 @@ func (m *Migration) getMigrationFiles(path string) ([]string, error) {
 }
 
 func (m *Migration) MakeMigration(tableName, migrationName, migrationsPath string) error {
-	timestamp := time.Now().Unix()
-	filename := fmt.Sprintf("%d_%s", timestamp, migrationName)
+	timestamp := time.Now().Format("2006_01_02_150405")
+	filename := fmt.Sprintf("%s_%s", timestamp, migrationName)
 	filepath := filepath.Join(migrationsPath, filename)
 
 	template := m.getMigrationTemplate(tableName, migrationName)
