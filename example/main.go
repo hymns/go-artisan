@@ -23,9 +23,15 @@ func main() {
 
 	m := migration.New(db)
 
-	if err := m.Migrate("./database/migrations"); err != nil {
+	// Option 1: AutoMigrate - Silent migration on app startup (recommended for production)
+	if err := m.AutoMigrate("./database/migrations"); err != nil {
 		log.Fatal(err)
 	}
+
+	// Option 2: Migrate - With colored output (good for CLI tools)
+	// if err := m.Migrate("./database/migrations"); err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	s := seeder.New(db)
 

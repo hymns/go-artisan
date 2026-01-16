@@ -6,6 +6,7 @@ Artisan supports multiple database drivers out of the box.
 
 - ✅ **MySQL** (default)
 - ✅ **PostgreSQL**
+- ✅ **SQL Server** (Microsoft SQL Server)
 - ✅ **SQLite**
 
 ## Configuration
@@ -34,6 +35,19 @@ DB_USER=postgres
 DB_PASS=your_password
 ```
 
+### SQL Server
+
+```env
+DB_DRIVER=sqlserver
+DB_HOST=localhost
+DB_PORT=1433
+DB_NAME=your_database
+DB_USER=sa
+DB_PASS=your_password
+```
+
+Note: You can also use `mssql` as the driver name. Connection string format: `sqlserver://user:pass@host:port?database=dbname`
+
 ### SQLite
 
 ```env
@@ -54,6 +68,11 @@ Artisan automatically generates database-specific SQL syntax:
 ### PostgreSQL
 - Primary Key: `SERIAL PRIMARY KEY`
 - Timestamps: `TIMESTAMP DEFAULT CURRENT_TIMESTAMP`
+
+### SQL Server
+- Primary Key: `INT IDENTITY(1,1) PRIMARY KEY`
+- Timestamps: `DATETIME DEFAULT GETDATE()`
+- Table Check: `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='table_name' AND xtype='U')`
 
 ### SQLite
 - Primary Key: `INTEGER PRIMARY KEY AUTOINCREMENT`

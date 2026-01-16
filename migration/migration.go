@@ -54,6 +54,14 @@ func (m *Migration) EnsureMigrationsTable() error {
 			batch INTEGER NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`
+	case "sqlserver", "mssql":
+		query = `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='migrations' AND xtype='U')
+			CREATE TABLE migrations (
+				id INT IDENTITY(1,1) PRIMARY KEY,
+				migration VARCHAR(255) NOT NULL,
+				batch INT NOT NULL,
+				created_at DATETIME DEFAULT GETDATE()
+			)`
 	default: // mysql
 		query = `CREATE TABLE IF NOT EXISTS migrations (
 			id INTEGER PRIMARY KEY AUTO_INCREMENT,
@@ -326,6 +334,15 @@ func (m *Migration) getMigrationTemplate(tableName, migrationName string) string
 );`, tableName)
 		downSQL = fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)
 
+	case "sqlserver", "mssql":
+		upSQL = fmt.Sprintf(`IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='%s' AND xtype='U')
+    CREATE TABLE %s (
+        id INT IDENTITY(1,1) PRIMARY KEY,
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE()
+    );`, tableName, tableName)
+		downSQL = fmt.Sprintf("IF EXISTS (SELECT * FROM sysobjects WHERE name='%s' AND xtype='U') DROP TABLE %s;", tableName, tableName)
+
 	default: // mysql
 		upSQL = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     id INTEGER PRIMARY KEY AUTO_INCREMENT,
@@ -354,6 +371,58 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func (m *Migration) AutoMigrate(migrationsPath string) error {
+	if err := m.EnsureMigrationsTable(); err != nil {
+		return fmt.Errorf("failed to ensure migrations table: %w", err)
+	}
+
+	migrated, err := m.getMigrated()
+	if err != nil {
+		return fmt.Errorf("failed to get migrated list: %w", err)
+	}
+
+	batch, err := m.getNextBatch()
+	if err != nil {
+		return fmt.Errorf("failed to get next batch: %w", err)
+	}
+
+	files, err := m.getMigrationFiles(migrationsPath)
+	if err != nil {
+		return fmt.Errorf("failed to get migration files: %w", err)
+	}
+
+	executed := 0
+	for _, file := range files {
+		name := filepath.Base(file)
+
+		if contains(migrated, name) {
+			continue
+		}
+
+		statements, err := m.parseMigrationSQL(file, true)
+		if err != nil {
+			return fmt.Errorf("failed to parse migration %s: %w", name, err)
+		}
+
+		for _, stmt := range statements {
+			if stmt == "" {
+				continue
+			}
+			if _, err := m.DB.Exec(stmt); err != nil {
+				return fmt.Errorf("failed to run migration %s: %w", name, err)
+			}
+		}
+
+		if err := m.recordMigration(name, batch); err != nil {
+			return fmt.Errorf("failed to record migration %s: %w", name, err)
+		}
+
+		executed++
+	}
+
+	return nil
 }
 
 func (m *Migration) parseMigrationSQL(filePath string, isUp bool) ([]string, error) {

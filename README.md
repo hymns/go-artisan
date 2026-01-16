@@ -163,7 +163,7 @@ make install    # Install globally
 
 ## 🗄️ Multi-Database Support
 
-Artisan supports **MySQL**, **PostgreSQL**, and **SQLite** out of the box.
+Artisan supports **MySQL**, **PostgreSQL**, **SQL Server**, and **SQLite** out of the box.
 
 ### MySQL Configuration
 
@@ -184,6 +184,17 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=mydb
 DB_USER=postgres
+DB_PASS=secret
+```
+
+### SQL Server Configuration
+
+```env
+DB_DRIVER=sqlserver
+DB_HOST=localhost
+DB_PORT=1433
+DB_NAME=mydb
+DB_USER=sa
 DB_PASS=secret
 ```
 
@@ -211,6 +222,15 @@ CREATE TABLE users (
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**SQL Server:**
+```sql
+CREATE TABLE users (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    created_at DATETIME DEFAULT GETDATE(),
+    updated_at DATETIME DEFAULT GETDATE()
 );
 ```
 
@@ -318,6 +338,64 @@ artisan db:seed
 
 **golang-migrate:**
 No built-in seeder support. Need separate tools or custom scripts.
+
+## 🔧 Programmatic Usage
+
+### Auto-Migration on Application Startup
+
+You can integrate go-artisan into your Go application to automatically run migrations when your app starts:
+
+```go
+package main
+
+import (
+    "database/sql"
+    "log"
+    
+    _ "github.com/go-sql-driver/mysql"
+    "github.com/hymns/go-artisan/migration"
+)
+
+func main() {
+    // Connect to database
+    db, err := sql.Open("mysql", "user:pass@tcp(localhost:3306)/dbname?parseTime=true")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
+    
+    // Auto-run migrations on startup
+    m := migration.New(db)
+    if err := m.AutoMigrate("./database/migrations"); err != nil {
+        log.Fatal(err)
+    }
+    
+    // Your application code here...
+}
+```
+
+**Key Features:**
+- ✅ **Silent Execution** - No console output, only returns errors
+- ✅ **Production Ready** - Safe to run on every app startup
+- ✅ **Idempotent** - Only runs pending migrations
+- ✅ **Fast** - Skips already migrated files
+
+### Migration Methods
+
+**`AutoMigrate(path string)`** - Silent migration for production apps
+```go
+if err := m.AutoMigrate("./database/migrations"); err != nil {
+    log.Fatal(err)
+}
+```
+
+**`Migrate(path string)`** - Migration with colored console output
+```go
+if err := m.Migrate("./database/migrations"); err != nil {
+    log.Fatal(err)
+}
+// Output: ✓ Migrated: 1768501234_create_users_table
+```
 
 ## 📖 Advanced Usage
 
