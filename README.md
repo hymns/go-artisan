@@ -481,16 +481,14 @@ cp .env.example .env.prod
 ```
 your-project/
 ├── bin/
-│   └── artisan              # Compiled binary
+│   └── artisan              # Compiled binary (after make build)
 ├── database/
-│   ├── migrations/
-│   │   ├── 1768501234_create_users_table
-│   │   └── 1768501235_create_posts_table
-│   └── seeders/
-│       ├── users_seeder
-│       └── posts_seeder
-├── .env                     # Database configuration
-└── Makefile                 # Build shortcuts
+│   ├── migrations/          # Migration files (created via make:migration)
+│   │   └── ...              # e.g., 1768501234_create_users_table
+│   └── seeders/             # Seeder files (created via make:seeder)
+│       └── ...              # e.g., users_seeder
+├── .env                     # Database configuration (copy from .env.example)
+└── Makefile                 # Build shortcuts (optional)
 ```
 
 ## 🛠️ Development
