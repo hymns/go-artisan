@@ -499,7 +499,7 @@ your-project/
 
 ```bash
 git clone https://github.com/hymns/go-artisan.git
-cd goartisan
+cd go-artisan
 make deps    # Install dependencies
 make build   # Build binary
 make test    # Run tests
@@ -531,9 +531,9 @@ Inspired by:
 
 ## 📞 Support
 
-- 📖 [Documentation](https://github.com/hymns/artisan/wiki)
-- 🐛 [Issue Tracker](https://github.com/hymns/artisan/issues)
-- 💬 [Discussions](https://github.com/hymns/artisan/discussions)
+- 📖 [Documentation](https://github.com/hymns/go-artisan/wiki)
+- 🐛 [Issue Tracker](https://github.com/hymns/go-artisan/issues)
+- 💬 [Discussions](https://github.com/hymns/go-artisan/discussions)
 
 ---
 
