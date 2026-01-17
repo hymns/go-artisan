@@ -11,6 +11,7 @@
 - [Installation](#-installation)
 - [Quick Start](#-quick-start)
 - [Commands](#-commands)
+- [New in v1.3.0](#-new-in-v130)
 - [New in v1.2.0](#-new-in-v120)
 - [Multi-Database Support](#️-multi-database-support)
 - [Programmatic Usage](#-programmatic-usage)
@@ -288,6 +289,27 @@ CREATE TABLE users (
 );
 ```
 
+## 🎉 New in v1.3.0
+
+### Smart .env Loading
+
+Artisan now automatically loads `.env` file from the current working directory when installed globally:
+
+```bash
+# Install globally
+sudo cp bin/artisan /usr/local/bin/artisan
+
+# Run from any project directory
+cd /path/to/your/project
+artisan migrate
+# ✓ Automatically loads .env from current directory
+```
+
+**Benefits:**
+- ✅ Works from any directory in your project
+- ✅ No need to specify config path
+- ✅ Seamless global installation support
+
 ## 🎉 New in v1.2.0
 
 ### Transaction Safety
@@ -386,7 +408,7 @@ Format: `YYYY_MM_DD_HHMMSS_migration_name`
 
 ## 🆚 Artisan vs golang-migrate
 
-| Feature | Artisan v1.2.0 | golang-migrate |
+| Feature | Artisan v1.3.0 | golang-migrate |
 |---------|----------------|----------------|
 | **Batch Tracking** | ✅ Yes | ❌ No |
 | **Rollback by Batch** | ✅ Yes | ❌ No (one-by-one only) |

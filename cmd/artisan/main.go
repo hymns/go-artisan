@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/fatih/color"
@@ -17,9 +18,7 @@ import (
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		color.Yellow("Warning: .env file not found")
-	}
+	loadEnvFile()
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -61,6 +60,23 @@ func main() {
 		color.Red("✗ Unknown command: %s", command)
 		printUsage()
 		os.Exit(1)
+	}
+}
+
+func loadEnvFile() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		color.Yellow("Warning: Could not get current directory")
+		return
+	}
+
+	envPath := filepath.Join(cwd, ".env")
+	if _, err := os.Stat(envPath); err == nil {
+		if err := godotenv.Load(envPath); err != nil {
+			color.Yellow("Warning: Failed to load .env file")
+		}
+	} else {
+		color.Yellow("Warning: .env file not found in current directory")
 	}
 }
 
@@ -355,7 +371,7 @@ func printAbout() {
 	color.Cyan("╚════════════════════════════════════════════════════════════════╝\n\n")
 
 	color.Green("Version: ")
-	color.White("1.2.0\n")
+	color.White("1.3.0\n")
 
 	color.Green("Author:  ")
 	color.White("Muhammad Hamizi Jaminan\n")
