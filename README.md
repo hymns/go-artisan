@@ -78,15 +78,20 @@ Example `.env` configuration:
 DB_DRIVER=mysql
 DB_HOST=localhost
 DB_PORT=3306
-DB_NAME=your_database
-DB_USER=root
-DB_PASS=
+DB_DATABASE=your_database
+DB_USERNAME=root
+DB_PASSWORD=
 
 MIGRATIONS_PATH=./database/migrations
 SEEDERS_PATH=./database/seeders
 ```
 
-> **Note:** See [Multi-Database Support](#️-multi-database-support) section for PostgreSQL, SQL Server, and SQLite configuration.
+> **Note:** Artisan supports alternate environment variable names for compatibility:
+> - `DB_DATABASE` or `DB_NAME` (primary: `DB_DATABASE`)
+> - `DB_USERNAME` or `DB_USER` (primary: `DB_USERNAME`)  
+> - `DB_PASSWORD` or `DB_PASS` (primary: `DB_PASSWORD`)
+
+> See [Multi-Database Support](#️-multi-database-support) section for PostgreSQL, SQL Server, and SQLite configuration.
 
 ### 2. Create Your First Migration
 
@@ -310,6 +315,32 @@ artisan migrate
 - ✅ No need to specify config path
 - ✅ Seamless global installation support
 
+### Alternate Environment Variable Names
+
+Support for multiple environment variable naming conventions with fallback support:
+
+```env
+# Primary names (recommended)
+DB_DATABASE=myapp
+DB_USERNAME=root
+DB_PASSWORD=secret
+
+# Alternate names (also supported)
+DB_NAME=myapp
+DB_USER=root
+DB_PASS=secret
+```
+
+**Priority:**
+- `DB_DATABASE` takes precedence over `DB_NAME`
+- `DB_USERNAME` takes precedence over `DB_USER`
+- `DB_PASSWORD` takes precedence over `DB_PASS`
+
+**Benefits:**
+- ✅ Compatible with Laravel and other frameworks
+- ✅ Flexible configuration options
+- ✅ Backward compatibility maintained
+
 ## 🎉 New in v1.2.0
 
 ### Transaction Safety
@@ -408,7 +439,7 @@ Format: `YYYY_MM_DD_HHMMSS_migration_name`
 
 ## 🆚 Artisan vs golang-migrate
 
-| Feature | Artisan v1.3.0 | golang-migrate |
+| Feature | Artisan v1.3.1 | golang-migrate |
 |---------|----------------|----------------|
 | **Batch Tracking** | ✅ Yes | ❌ No |
 | **Rollback by Batch** | ✅ Yes | ❌ No (one-by-one only) |

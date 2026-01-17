@@ -84,9 +84,9 @@ func connectDB() (*sql.DB, error) {
 	dbDriver := getEnv("DB_DRIVER", "mysql")
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "3306")
-	dbName := getEnv("DB_NAME", "database")
-	dbUser := getEnv("DB_USER", "root")
-	dbPass := getEnv("DB_PASS", "")
+	dbName := getEnvWithFallback("DB_DATABASE", "DB_NAME", "database")
+	dbUser := getEnvWithFallback("DB_USERNAME", "DB_USER", "root")
+	dbPass := getEnvWithFallback("DB_PASSWORD", "DB_PASS", "")
 
 	var dsn string
 	switch dbDriver {
@@ -371,7 +371,7 @@ func printAbout() {
 	color.Cyan("╚════════════════════════════════════════════════════════════════╝\n\n")
 
 	color.Green("Version: ")
-	color.White("1.3.0\n")
+	color.White("1.3.1\n")
 
 	color.Green("Author:  ")
 	color.White("Muhammad Hamizi Jaminan\n")
@@ -439,4 +439,18 @@ func getEnv(key, defaultValue string) string {
 		return defaultValue
 	}
 	return strings.TrimSpace(value)
+}
+
+func getEnvWithFallback(primaryKey, fallbackKey, defaultValue string) string {
+	value := os.Getenv(primaryKey)
+	if value != "" {
+		return strings.TrimSpace(value)
+	}
+
+	value = os.Getenv(fallbackKey)
+	if value != "" {
+		return strings.TrimSpace(value)
+	}
+
+	return defaultValue
 }
