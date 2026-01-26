@@ -33,8 +33,10 @@
 - ✅ **Laravel-Style Commands** - Familiar syntax for Laravel developers
 - ✅ **Auto-Naming** - Smart migration name generation
 - ✅ **Built-in Seeders** - Seed your database with test data
+- ✅ **Seeder Tracking** - Skip already-run seeders automatically
 - ✅ **Driver-Specific SQL** - Auto-generate correct SQL for your database
 - ✅ **Migration Status** - See which migrations are pending/ran
+- ✅ **Seeder Status** - See which seeders are pending/seeded
 - ✅ **Dry Run Mode** - Preview migrations before running
 
 ## 📦 Installation
@@ -96,10 +98,17 @@ SEEDERS_PATH=./database/seeders
 ### 2. Create Your First Migration
 
 ```bash
-# Auto-generate migration name
+# Simple table name (auto-generates: create_users_table)
 artisan make:migration users
-
 # Output: 2026_01_16_170530_create_users_table
+
+# Custom migration name with prefix
+artisan make:migration create_products_table
+# Output: 2026_01_16_170530_create_products_table
+
+# Custom name with --table parameter
+artisan make:migration add_status_column --table=users
+# Output: 2026_01_16_170530_add_status_column
 ```
 
 ### 3. Edit the Migration
@@ -148,15 +157,23 @@ artisan db:seed
 ### Migration Commands
 
 ```bash
-# Create migration with auto-naming
+# Simple table name (auto-generates: create_<table>_table)
 artisan make:migration users
-artisan make:migration products
+# Result: 2026_01_25_105530_create_users_table
 
-# Create migration with custom name
-artisan make:migration users create_users_table
+artisan make:migration products  
+# Result: 2026_01_25_105545_create_products_table
 
-# Using flags
-artisan make:migration --table=users custom_name
+# Custom migration name with prefix words (create/alter/add/drop/rename)
+artisan make:migration create_orders_table
+# Result: 2026_01_25_105600_create_orders_table
+
+artisan make:migration add_status_to_users
+# Result: 2026_01_25_105615_add_status_to_users
+
+# Custom name with --table parameter (specifies table in migration content)
+artisan make:migration add_email_verified --table=users
+# Result: 2026_01_25_105630_add_email_verified
 
 # Run all pending migrations
 artisan migrate
@@ -196,11 +213,16 @@ artisan make:seeder users
 # Using flags
 artisan make:seeder --seeder=products
 
-# Run all seeders
+# Run all seeders (with tracking - skips already seeded)
 artisan db:seed
+# ✓ Seeded: users_seeder
+# ⚠ Already seeded: products_seeder
 
 # Run specific seeder file
 artisan db:seed --path=./database/seeders/users_seeder
+
+# Show seeder status
+artisan seeder:status
 ```
 
 ### Makefile Shortcuts
@@ -414,6 +436,51 @@ Would migrate: 2026_01_16_180230_add_user_roles (Batch 2)
 Total pending migrations: 1
 ```
 
+### Seeder Status Command
+
+See which seeders have been run and which are pending:
+
+```bash
+artisan seeder:status
+```
+
+**Output:**
+```
+Seeder Status:
+
+Seeder                                             Ran
+------------------------------------------------------------
+users_seeder                                       YES
+products_seeder                                    YES
+categories_seeder                                  NO
+```
+
+- **Green YES** = Seeder has been run
+- **Yellow NO** = Seeder is pending
+
+### Seeder Tracking System
+
+Seeders now track execution to prevent duplicate data:
+
+```bash
+# First run
+artisan db:seed
+# ✓ Seeded: users_seeder
+# ✓ Seeded: products_seeder
+
+# Second run (skips already seeded)
+artisan db:seed
+# ⚠ Already seeded: users_seeder
+# ⚠ Already seeded: products_seeder
+# Nothing to seed.
+```
+
+**Benefits:**
+- ✅ Prevents duplicate data insertion
+- ✅ Safe to run multiple times
+- ✅ Tracks seeded files in `seeders` table
+- ✅ Production-ready
+
 ### Database Placeholder Compatibility
 
 Fixed SQL placeholder compatibility for all databases:
@@ -439,13 +506,15 @@ Format: `YYYY_MM_DD_HHMMSS_migration_name`
 
 ## 🆚 Artisan vs golang-migrate
 
-| Feature | Artisan v1.3.1 | golang-migrate |
+| Feature | Artisan v1.4.0 | golang-migrate |
 |---------|----------------|----------------|
 | **Batch Tracking** | ✅ Yes | ❌ No |
 | **Rollback by Batch** | ✅ Yes | ❌ No (one-by-one only) |
 | **Transaction Safety** | ✅ Yes | ✅ Yes |
 | **Migration Locking** | ✅ Yes | ✅ Yes |
 | **Migration Status** | ✅ Yes | ❌ No |
+| **Seeder Status** | ✅ Yes | ❌ No |
+| **Seeder Tracking** | ✅ Yes | ❌ No |
 | **Dry Run Mode** | ✅ Yes | ❌ No |
 | **Multi-Statement Support** | ✅ Yes | ⚠️ Limited |
 | **Auto-Naming** | ✅ Yes | ❌ No |
@@ -534,6 +603,10 @@ artisan make:migration products add_price_column
 artisan make:seeder products
 # Edit SQL file
 artisan db:seed
+# ✓ Seeded: products_seeder (tracked - won't duplicate)
+
+artisan seeder:status
+# See which seeders are pending/seeded
 ```
 
 **golang-migrate:**
@@ -638,7 +711,7 @@ if err := s.AutoSeed("./database/seeders"); err != nil {
 - ✅ **Silent** - No console output
 - ✅ **Production Safe** - Won't duplicate data on restart
 
-**`RunWithTracking(path string)`** - Run with tracking and colored output
+**`RunWithTracking(path string)`** - Run with tracking and colored output (used by `db:seed`)
 ```go
 // Shows which seeders are skipped vs newly seeded
 s := seeder.New(db)
@@ -647,6 +720,7 @@ if err := s.RunWithTracking("./database/seeders"); err != nil {
 }
 // Output: ⚠ Already seeded: users_seeder
 // Output: ✓ Seeded: products_seeder
+// Output: Nothing to seed. (if all already seeded)
 ```
 
 **`Run(path string)`** - Run all seeders WITHOUT tracking

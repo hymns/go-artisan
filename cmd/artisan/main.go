@@ -48,6 +48,8 @@ func main() {
 		handleMigrateDryRun(db)
 	case "db:seed":
 		handleSeed(db, args)
+	case "seeder:status", "db:seed:status":
+		handleSeederStatus(db)
 	case "make:migration":
 		handleMakeMigration(args)
 	case "make:seeder":
@@ -287,10 +289,39 @@ func handleSeed(db *sql.DB, args []string) {
 			os.Exit(1)
 		}
 	} else {
-		// Run all seeders
-		if err := s.Run(seedersPath); err != nil {
+		// Run all seeders with tracking (skip already seeded)
+		if err := s.RunWithTracking(seedersPath); err != nil {
 			color.Red("✗ Seeding failed: %v", err)
 			os.Exit(1)
+		}
+	}
+}
+
+func handleSeederStatus(db *sql.DB) {
+	s := seeder.New(db)
+	seedersPath := getEnv("SEEDERS_PATH", "./database/seeders")
+
+	statuses, err := s.Status(seedersPath)
+	if err != nil {
+		color.Red("✗ Failed to get seeder status: %v", err)
+		os.Exit(1)
+	}
+
+	if len(statuses) == 0 {
+		color.Cyan("No seeders found.")
+		return
+	}
+
+	color.Cyan("\nSeeder Status:\n")
+	color.White("%-50s %s\n", "Seeder", "Ran")
+	color.White("%s\n", strings.Repeat("-", 60))
+
+	for _, status := range statuses {
+		fmt.Printf("%-50s ", status.Name)
+		if status.Seeded {
+			color.Green("YES\n")
+		} else {
+			color.Yellow("NO\n")
 		}
 	}
 }
@@ -303,21 +334,51 @@ func handleMakeMigration(args []string) {
 		if strings.HasPrefix(arg, "--table=") {
 			tableName = strings.TrimPrefix(arg, "--table=")
 		} else if i == 0 && !strings.HasPrefix(arg, "--") {
-			tableName = arg
-		} else if i == 1 && !strings.HasPrefix(arg, "--") {
 			migrationName = arg
 		}
 	}
 
-	if tableName == "" {
-		color.Red("✗ Usage: artisan make:migration <table_name> [migration_name]")
-		color.Red("✗    or: artisan make:migration --table=<table_name> [migration_name]")
+	if migrationName == "" {
+		color.Red("✗ Usage: artisan make:migration <migration_name>")
+		color.Red("✗    or: artisan make:migration <migration_name> --table=<table_name>")
 		os.Exit(1)
 	}
 
-	// Auto-generate migration name if not provided
-	if migrationName == "" {
+	// Check if migration name has prefix words (create/alter/add/drop/rename)
+	prefixWords := []string{"create_", "alter_", "add_", "drop_", "rename_"}
+	hasPrefix := false
+	for _, prefix := range prefixWords {
+		if strings.HasPrefix(migrationName, prefix) {
+			hasPrefix = true
+			break
+		}
+	}
+
+	// If no prefix detected and no --table flag, use migration name as table name
+	if !hasPrefix && tableName == "" {
+		tableName = migrationName
 		migrationName = fmt.Sprintf("create_%s_table", tableName)
+	}
+
+	// If --table flag provided but migration name has no prefix, auto-generate
+	if tableName != "" && !hasPrefix {
+		migrationName = fmt.Sprintf("create_%s_table", tableName)
+	}
+
+	// If no table name set yet, try to extract from migration name
+	if tableName == "" {
+		// Extract table name from migration name patterns like "create_users_table"
+		for _, prefix := range prefixWords {
+			if strings.HasPrefix(migrationName, prefix) {
+				// Remove prefix and "_table" suffix if exists
+				temp := strings.TrimPrefix(migrationName, prefix)
+				temp = strings.TrimSuffix(temp, "_table")
+				if temp != "" {
+					tableName = temp
+				}
+				break
+			}
+		}
 	}
 
 	migrationsPath := getEnv("MIGRATIONS_PATH", "./database/migrations")
@@ -371,7 +432,7 @@ func printAbout() {
 	color.Cyan("╚════════════════════════════════════════════════════════════════╝\n\n")
 
 	color.Green("Version: ")
-	color.White("1.3.1\n")
+	color.White("1.4.0\n")
 
 	color.Green("Author:  ")
 	color.White("Muhammad Hamizi Jaminan\n")
@@ -410,10 +471,11 @@ func printUsage() {
 		{"migrate:dry-run", "Preview pending migrations without running"},
 		{"db:seed", "Run database seeders"},
 		{"db:seed --path=<file>", "Run specific seeder file"},
+		{"seeder:status", "Show seeder status (seeded/pending)"},
 		{"", ""},
-		{"make:migration <table>", "Create migration (auto-name: create_<table>_table)"},
-		{"make:migration <table> <name>", "Create migration with custom name"},
-		{"make:migration --table=<table>", "Create migration using flag"},
+		{"make:migration <name>", "Create migration with custom name"},
+		{"make:migration <table_name>", "Auto-create: create_<table_name>_table"},
+		{"make:migration <name> --table=<table>", "Create migration with table name"},
 		{"", ""},
 		{"make:seeder <name>", "Create seeder (auto-append: _seeder)"},
 		{"make:seeder --seeder=<name>", "Create seeder using flag"},

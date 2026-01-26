@@ -371,6 +371,39 @@ func (s *Seeder) getSeederFiles(path string) ([]string, error) {
 	return files, nil
 }
 
+type SeederStatus struct {
+	Name   string
+	Seeded bool
+}
+
+func (s *Seeder) Status(seedersPath string) ([]SeederStatus, error) {
+	if err := s.EnsureSeedersTable(); err != nil {
+		return nil, fmt.Errorf("failed to ensure seeders table: %w", err)
+	}
+
+	seeded, err := s.getSeeded()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get seeded list: %w", err)
+	}
+
+	files, err := s.getSeederFiles(seedersPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get seeder files: %w", err)
+	}
+
+	var statuses []SeederStatus
+	for _, file := range files {
+		name := filepath.Base(file)
+		status := SeederStatus{
+			Name:   name,
+			Seeded: contains(seeded, name),
+		}
+		statuses = append(statuses, status)
+	}
+
+	return statuses, nil
+}
+
 func (s *Seeder) MakeSeeder(seederName, seedersPath string) error {
 	filename := seederName
 	filepath := filepath.Join(seedersPath, filename)
