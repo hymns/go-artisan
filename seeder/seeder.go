@@ -286,9 +286,8 @@ func (s *Seeder) RunWithTracking(seedersPath string) error {
 	for _, file := range files {
 		name := filepath.Base(file)
 
-		// Skip if already seeded
+		// Skip if already seeded (silent)
 		if contains(seeded, name) {
-			color.Yellow("⚠ Already seeded: %s", name)
 			continue
 		}
 
@@ -442,12 +441,18 @@ func (s *Seeder) parseSeederSQL(filePath string) ([]string, error) {
 
 	text := string(content)
 
-	// Remove comment lines starting with --
+	// Remove comment lines starting with -- and stop at --DOWN-- marker
 	lines := strings.Split(text, "\n")
 	var sqlLines []string
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		// Skip empty lines and comment lines
+
+		// Stop processing at --DOWN-- marker (seeders don't need down migrations)
+		if trimmed == "--DOWN--" {
+			break
+		}
+
+		// Skip empty lines and comment lines (but not --DOWN-- since we break above)
 		if trimmed == "" || strings.HasPrefix(trimmed, "--") {
 			continue
 		}
@@ -457,17 +462,140 @@ func (s *Seeder) parseSeederSQL(filePath string) ([]string, error) {
 	sql := strings.Join(sqlLines, "\n")
 	sql = strings.TrimSpace(sql)
 
-	// Split by semicolon to get individual statements
-	statements := strings.Split(sql, ";")
+	// Smart split by semicolon (respect quoted strings)
+	statements := s.splitSQLStatements(sql)
 
-	// Trim each statement
+	// Normalize each statement (escape newlines in quoted strings)
 	var result []string
 	for _, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
 		if stmt != "" {
+			// Normalize newlines and quotes within string literals
+			stmt = s.normalizeSQL(stmt)
 			result = append(result, stmt)
 		}
 	}
 
 	return result, nil
+}
+
+// splitSQLStatements splits SQL by semicolon but respects quoted strings
+func (s *Seeder) splitSQLStatements(sql string) []string {
+	var statements []string
+	var current strings.Builder
+	inSingleQuote := false
+	inDoubleQuote := false
+	escaped := false
+
+	for i := 0; i < len(sql); i++ {
+		char := sql[i]
+
+		// Handle escape sequences
+		if escaped {
+			current.WriteByte(char)
+			escaped = false
+			continue
+		}
+
+		if char == '\\' {
+			escaped = true
+			current.WriteByte(char)
+			continue
+		}
+
+		// Toggle quote states
+		if char == '\'' && !inDoubleQuote {
+			inSingleQuote = !inSingleQuote
+			current.WriteByte(char)
+			continue
+		}
+
+		if char == '"' && !inSingleQuote {
+			inDoubleQuote = !inDoubleQuote
+			current.WriteByte(char)
+			continue
+		}
+
+		// Split on semicolon only if not inside quotes
+		if char == ';' && !inSingleQuote && !inDoubleQuote {
+			stmt := current.String()
+			if strings.TrimSpace(stmt) != "" {
+				statements = append(statements, stmt)
+			}
+			current.Reset()
+			continue
+		}
+
+		current.WriteByte(char)
+	}
+
+	// Add remaining content
+	if current.Len() > 0 {
+		stmt := current.String()
+		if strings.TrimSpace(stmt) != "" {
+			statements = append(statements, stmt)
+		}
+	}
+
+	return statements
+}
+
+// normalizeSQL escapes newlines and special characters within quoted strings
+func (s *Seeder) normalizeSQL(sql string) string {
+	var result strings.Builder
+	inSingleQuote := false
+	inDoubleQuote := false
+	escaped := false
+
+	for i := 0; i < len(sql); i++ {
+		char := sql[i]
+
+		// Handle escape sequences
+		if escaped {
+			result.WriteByte(char)
+			escaped = false
+			continue
+		}
+
+		if char == '\\' {
+			escaped = true
+			result.WriteByte(char)
+			continue
+		}
+
+		// Toggle quote states
+		if char == '\'' && !inDoubleQuote {
+			inSingleQuote = !inSingleQuote
+			result.WriteByte(char)
+			continue
+		}
+
+		if char == '"' && !inSingleQuote {
+			inDoubleQuote = !inDoubleQuote
+			result.WriteByte(char)
+			continue
+		}
+
+		// Escape newlines within quoted strings
+		if (inSingleQuote || inDoubleQuote) && char == '\n' {
+			result.WriteString("\\n")
+			continue
+		}
+
+		// Escape carriage returns within quoted strings
+		if (inSingleQuote || inDoubleQuote) && char == '\r' {
+			result.WriteString("\\r")
+			continue
+		}
+
+		// Escape tabs within quoted strings
+		if (inSingleQuote || inDoubleQuote) && char == '\t' {
+			result.WriteString("\\t")
+			continue
+		}
+
+		result.WriteByte(char)
+	}
+
+	return result.String()
 }
