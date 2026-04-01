@@ -496,6 +496,41 @@ func (m *Migration) MakeMigration(tableName, migrationName, migrationsPath strin
 func (m *Migration) getMigrationTemplate(tableName, migrationName string) string {
 	var upSQL, downSQL string
 
+	// Detect migration pattern
+	isAddColumn := strings.HasPrefix(migrationName, "add_") && (strings.Contains(migrationName, "_column") || strings.Contains(migrationName, "_to_"))
+	isDropColumn := strings.HasPrefix(migrationName, "drop_") && (strings.Contains(migrationName, "_column") || strings.Contains(migrationName, "_from_"))
+	isAlterTable := strings.HasPrefix(migrationName, "alter_")
+	isRenameTable := strings.HasPrefix(migrationName, "rename_")
+
+	// Generate appropriate SQL based on pattern
+	if isAddColumn {
+		upSQL, downSQL = m.getAddColumnTemplate(tableName)
+	} else if isDropColumn {
+		upSQL, downSQL = m.getDropColumnTemplate(tableName)
+	} else if isAlterTable {
+		upSQL, downSQL = m.getAlterTableTemplate(tableName)
+	} else if isRenameTable {
+		upSQL, downSQL = m.getRenameTableTemplate(tableName)
+	} else {
+		// Default: CREATE TABLE template
+		upSQL, downSQL = m.getCreateTableTemplate(tableName)
+	}
+
+	return fmt.Sprintf(`-- Migration: %s
+-- Created at: %s
+-- Database: %s
+
+--UP--
+%s
+
+--DOWN--
+%s
+`, migrationName, time.Now().Format("2006-01-02 15:04:05"), m.Driver, upSQL, downSQL)
+}
+
+func (m *Migration) getCreateTableTemplate(tableName string) (string, string) {
+	var upSQL, downSQL string
+
 	switch m.Driver {
 	case "postgres":
 		upSQL = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
@@ -531,16 +566,110 @@ func (m *Migration) getMigrationTemplate(tableName, migrationName string) string
 		downSQL = fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)
 	}
 
-	return fmt.Sprintf(`-- Migration: %s
--- Created at: %s
--- Database: %s
+	return upSQL, downSQL
+}
 
---UP--
-%s
+func (m *Migration) getAddColumnTemplate(tableName string) (string, string) {
+	var upSQL, downSQL string
 
---DOWN--
-%s
-`, migrationName, time.Now().Format("2006-01-02 15:04:05"), m.Driver, upSQL, downSQL)
+	switch m.Driver {
+	case "postgres":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s ADD COLUMN column_name VARCHAR(255);`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+
+	case "sqlite", "sqlite3":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s ADD COLUMN column_name VARCHAR(255);`, tableName)
+		downSQL = fmt.Sprintf(`-- SQLite does not support DROP COLUMN in older versions
+-- ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+
+	case "sqlserver", "mssql":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s ADD column_name VARCHAR(255);`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+
+	default: // mysql
+		upSQL = fmt.Sprintf(`ALTER TABLE %s ADD COLUMN column_name VARCHAR(255);`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+	}
+
+	return upSQL, downSQL
+}
+
+func (m *Migration) getDropColumnTemplate(tableName string) (string, string) {
+	var upSQL, downSQL string
+
+	switch m.Driver {
+	case "postgres":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s ADD COLUMN column_name VARCHAR(255);`, tableName)
+
+	case "sqlite", "sqlite3":
+		upSQL = fmt.Sprintf(`-- SQLite does not support DROP COLUMN in older versions
+-- ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s ADD COLUMN column_name VARCHAR(255);`, tableName)
+
+	case "sqlserver", "mssql":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s ADD column_name VARCHAR(255);`, tableName)
+
+	default: // mysql
+		upSQL = fmt.Sprintf(`ALTER TABLE %s DROP COLUMN column_name;`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s ADD COLUMN column_name VARCHAR(255);`, tableName)
+	}
+
+	return upSQL, downSQL
+}
+
+func (m *Migration) getAlterTableTemplate(tableName string) (string, string) {
+	var upSQL, downSQL string
+
+	switch m.Driver {
+	case "postgres":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s MODIFY COLUMN column_name VARCHAR(255);`, tableName)
+		downSQL = fmt.Sprintf(`-- Revert changes
+ALTER TABLE %s MODIFY COLUMN column_name VARCHAR(255);`, tableName)
+
+	case "sqlite", "sqlite3":
+		upSQL = fmt.Sprintf(`-- SQLite has limited ALTER TABLE support
+-- You may need to recreate the table
+ALTER TABLE %s RENAME TO %s_old;`, tableName, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE %s_old RENAME TO %s;`, tableName, tableName)
+
+	case "sqlserver", "mssql":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN column_name VARCHAR(255);`, tableName)
+		downSQL = fmt.Sprintf(`-- Revert changes
+ALTER TABLE %s ALTER COLUMN column_name VARCHAR(255);`, tableName)
+
+	default: // mysql
+		upSQL = fmt.Sprintf(`ALTER TABLE %s MODIFY COLUMN column_name VARCHAR(255);`, tableName)
+		downSQL = fmt.Sprintf(`-- Revert changes
+ALTER TABLE %s MODIFY COLUMN column_name VARCHAR(255);`, tableName)
+	}
+
+	return upSQL, downSQL
+}
+
+func (m *Migration) getRenameTableTemplate(tableName string) (string, string) {
+	var upSQL, downSQL string
+
+	switch m.Driver {
+	case "postgres":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s RENAME TO new_table_name;`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE new_table_name RENAME TO %s;`, tableName)
+
+	case "sqlite", "sqlite3":
+		upSQL = fmt.Sprintf(`ALTER TABLE %s RENAME TO new_table_name;`, tableName)
+		downSQL = fmt.Sprintf(`ALTER TABLE new_table_name RENAME TO %s;`, tableName)
+
+	case "sqlserver", "mssql":
+		upSQL = fmt.Sprintf(`EXEC sp_rename '%s', 'new_table_name';`, tableName)
+		downSQL = fmt.Sprintf(`EXEC sp_rename 'new_table_name', '%s';`, tableName)
+
+	default: // mysql
+		upSQL = fmt.Sprintf(`RENAME TABLE %s TO new_table_name;`, tableName)
+		downSQL = fmt.Sprintf(`RENAME TABLE new_table_name TO %s;`, tableName)
+	}
+
+	return upSQL, downSQL
 }
 
 func contains(slice []string, item string) bool {
@@ -798,9 +927,25 @@ func (m *Migration) parseMigrationSQL(filePath string, isUp bool) ([]string, err
 	var result []string
 	for _, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
-		// Skip empty statements and comment-only lines
-		if stmt != "" && !strings.HasPrefix(stmt, "--") {
-			result = append(result, stmt)
+		if stmt == "" {
+			continue
+		}
+
+		// Remove leading comment lines from statement
+		lines := strings.Split(stmt, "\n")
+		var cleanLines []string
+		for _, line := range lines {
+			trimmedLine := strings.TrimSpace(line)
+			// Skip empty lines and comment-only lines at the start
+			if len(cleanLines) == 0 && (trimmedLine == "" || strings.HasPrefix(trimmedLine, "--")) {
+				continue
+			}
+			cleanLines = append(cleanLines, line)
+		}
+
+		cleanStmt := strings.TrimSpace(strings.Join(cleanLines, "\n"))
+		if cleanStmt != "" {
+			result = append(result, cleanStmt)
 		}
 	}
 

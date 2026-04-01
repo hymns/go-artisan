@@ -423,33 +423,32 @@ func handleMakeSeeder(args []string) {
 }
 
 func printAbout() {
-	color.Cyan("\n╔════════════════════════════════════════════════════════════════╗\n")
-	color.Cyan("║                                                                ║\n")
-	color.Cyan("║  ")
-	color.White("Artisan - Database Migration Tool for Go")
-	color.Cyan("                   ║\n")
-	color.Cyan("║                                                                ║\n")
-	color.Cyan("╚════════════════════════════════════════════════════════════════╝\n\n")
-
-	color.Green("Version: ")
-	color.White("1.4.0\n")
-
-	color.Green("Author:  ")
-	color.White("Muhammad Hamizi Jaminan\n")
-
-	color.Green("Email:   ")
-	color.Cyan("hello@hamizi.net\n")
-
-	color.Green("GitHub:  ")
-	color.Cyan("https://github.com/hymns/go-artisan\n")
+	cyan := color.New(color.FgCyan).SprintFunc()
+	white := color.New(color.FgWhite).SprintFunc()
+	green := color.New(color.FgGreen).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
 
 	fmt.Println()
-	color.Yellow("A Laravel-inspired database migration tool for Go developers.\n")
-	color.White("Supports MySQL, PostgreSQL, SQL Server, and SQLite with batch tracking,\n")
-	color.White("multi-statement migrations, and Laravel-style commands.\n")
+	fmt.Println(cyan("╔════════════════════════════════════════════════════════════════╗"))
+	fmt.Println(cyan("║                                                                ║"))
+	fmt.Printf("%s%s%s\n", cyan("║  "), white("Artisan - Database Migration Tool for Go"), cyan("                      ║"))
+	fmt.Println(cyan("║                                                                ║"))
+	fmt.Println(cyan("╚════════════════════════════════════════════════════════════════╝"))
 	fmt.Println()
 
-	color.Cyan("Made with ❤️  for Go developers who miss Laravel's migration system.\n\n")
+	fmt.Printf("%s%s\n", green("Version: "), white("1.5.0"))
+	fmt.Printf("%s%s\n", green("Author:  "), white("Muhammad Hamizi Jaminan"))
+	fmt.Printf("%s%s\n", green("Email:   "), cyan("hello@hamizi.net"))
+	fmt.Printf("%s%s\n", green("GitHub:  "), cyan("https://github.com/hymns/go-artisan"))
+
+	fmt.Println()
+	fmt.Println(yellow("A Laravel-inspired database migration tool for Go developers."))
+	fmt.Println(white("Supports MySQL, PostgreSQL, SQL Server, and SQLite with batch tracking,"))
+	fmt.Println(white("multi-statement migrations, and Laravel-style commands."))
+	fmt.Println()
+
+	fmt.Println(cyan("Made with ❤️  for Go developers who miss Laravel's migration system."))
+	fmt.Println()
 }
 
 func printUsage() {
