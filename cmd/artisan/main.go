@@ -436,7 +436,7 @@ func printAbout() {
 	fmt.Println(cyan("╚════════════════════════════════════════════════════════════════╝"))
 	fmt.Println()
 
-	fmt.Printf("%s%s\n", green("Version: "), white("1.5.0"))
+	fmt.Printf("%s%s\n", green("Version: "), white("1.6.0"))
 	fmt.Printf("%s%s\n", green("Author:  "), white("Muhammad Hamizi Jaminan"))
 	fmt.Printf("%s%s\n", green("Email:   "), cyan("hello@hamizi.net"))
 	fmt.Printf("%s%s\n", green("GitHub:  "), cyan("https://github.com/hymns/go-artisan"))
